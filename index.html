@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smooth Signature Pad</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Prevent scrolling when touching the canvas on mobile */
+        #signature-pad {
+            touch-action: none; 
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+
+    <div class="bg-white p-6 md:p-8 rounded-2xl shadow-xl w-full max-w-2xl">
+        <div class="text-center mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">Digital Signature</h1>
+            <p class="text-gray-500 text-sm mt-1">Features stroke smoothing & realistic ink. Saves as transparent PNG.</p>
+        </div>
+
+        <!-- Canvas Container -->
+        <div class="relative border-2 border-dashed border-gray-300 rounded-xl bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+CjxwYXRoIGQ9Ik0wIDIwaDIwdjFIMHptMjAtMjBoMXYyMGgtMXoiIGZpbGw9IiNlNWU3ZWIiIGZpbGwtb3BhY2l0eT0iMC40IiBmaWxsLXJ1bGU9ImV2ZW5vZGQiLz4KPC9zdmc+')] bg-gray-50 overflow-hidden touch-none flex justify-center items-center">
+            
+            <canvas id="signature-pad" class="cursor-crosshair w-full max-w-full" width="600" height="300"></canvas>
+            
+            <div id="placeholder" class="absolute inset-0 flex items-center justify-center pointer-events-none text-gray-300 select-none">
+                <span class="text-xl font-medium tracking-widest">SIGN HERE</span>
+            </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="mt-6 flex flex-col sm:flex-row gap-4 justify-between items-center">
+            <!-- Color Selection -->
+            <div class="flex gap-2 items-center">
+                <span class="text-sm font-medium text-gray-600 mr-2">Pen Color:</span>
+                <button class="color-btn w-8 h-8 rounded-full bg-black ring-2 ring-offset-2 ring-black transition-all" data-color="#000000" aria-label="Black pen"></button>
+                <button class="color-btn w-8 h-8 rounded-full bg-blue-600 ring-2 ring-offset-2 ring-transparent transition-all" data-color="#2563eb" aria-label="Blue pen"></button>
+                <button class="color-btn w-8 h-8 rounded-full bg-red-600 ring-2 ring-offset-2 ring-transparent transition-all" data-color="#dc2626" aria-label="Red pen"></button>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex gap-3 w-full sm:w-auto">
+                <button id="clear-btn" class="flex-1 sm:flex-none px-5 py-2.5 rounded-lg font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors border border-gray-200">
+                    Clear
+                </button>
+                <button id="save-btn" class="flex-1 sm:flex-none px-5 py-2.5 rounded-lg font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm shadow-blue-600/30">
+                    Save PNG
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('signature-pad');
+            const ctx = canvas.getContext('2d');
+            const clearBtn = document.getElementById('clear-btn');
+            const saveBtn = document.getElementById('save-btn');
+            const colorBtns = document.querySelectorAll('.color-btn');
+            const placeholder = document.getElementById('placeholder');
+            
+            let isDrawing = false;
+            let hasDrawn = false;
+            let penColor = '#000000';
+
+            // Pen Configuration
+            const minWidth = 1.0;
+            const maxWidth = 5.0;
+            const velocityFilterWeight = 0.5;
+            
+            // State tracking for smooth ink
+            let points = [];
+            let lastVelocity = 0;
+            let lastWidth = (minWidth + maxWidth) / 2;
+            let lastMidPoint = null;
+
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            // Function to get exact coordinates considering potential CSS scaling
+            function getCoordinates(e) {
+                const rect = canvas.getBoundingClientRect();
+                const clientX = e.clientX !== undefined ? e.clientX : e.touches[0].clientX;
+                const clientY = e.clientY !== undefined ? e.clientY : e.touches[0].clientY;
+                
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+
+                return {
+                    x: (clientX - rect.left) * scaleX,
+                    y: (clientY - rect.top) * scaleY,
+                    time: Date.now()
+                };
+            }
+
+            // Start drawing
+            function startDrawing(e) {
+                e.preventDefault(); 
+                isDrawing = true;
+                
+                if (!hasDrawn) {
+                    placeholder.style.display = 'none';
+                    hasDrawn = true;
+                }
+
+                const point = getCoordinates(e);
+                points = [point];
+                lastVelocity = 0;
+                lastWidth = (minWidth + maxWidth) / 2;
+                lastMidPoint = point;
+
+                // Draw initial dot for taps
+                ctx.fillStyle = penColor;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, lastWidth / 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.closePath();
+            }
+
+            // Draw line (Smoothing & Ink Effect)
+            function draw(e) {
+                if (!isDrawing) return;
+                e.preventDefault();
+                
+                const point = getCoordinates(e);
+                points.push(point);
+
+                if (points.length >= 2) {
+                    const p1 = points[points.length - 2];
+                    const p2 = points[points.length - 1];
+
+                    // Calculate midpoint for bezier curve smoothing
+                    const midPoint = {
+                        x: (p1.x + p2.x) / 2,
+                        y: (p1.y + p2.y) / 2
+                    };
+
+                    // Calculate stroke velocity
+                    const distance = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+                    const timeDiff = p2.time - p1.time;
+                    let velocity = timeDiff === 0 ? 0 : distance / timeDiff;
+
+                    // Apply low-pass filter to velocity for smoother thickness transitions
+                    velocity = velocityFilterWeight * velocity + (1 - velocityFilterWeight) * lastVelocity;
+
+                    // Map velocity to line width (faster = thinner, slower = thicker)
+                    let targetWidth = Math.max(minWidth, maxWidth - (velocity * 1.5));
+                    let currentWidth = lastWidth * 0.7 + targetWidth * 0.3; // Interpolate width
+
+                    // Draw the curve segment
+                    ctx.beginPath();
+                    ctx.moveTo(lastMidPoint.x, lastMidPoint.y);
+                    ctx.quadraticCurveTo(p1.x, p1.y, midPoint.x, midPoint.y);
+                    
+                    ctx.strokeStyle = penColor;
+                    ctx.lineWidth = currentWidth;
+                    ctx.stroke();
+
+                    // Update state for next frame
+                    lastVelocity = velocity;
+                    lastWidth = currentWidth;
+                    lastMidPoint = midPoint;
+                }
+            }
+
+            // Stop drawing
+            function stopDrawing() {
+                if (!isDrawing) return;
+                isDrawing = false;
+                
+                // Draw the very last trailing segment to connect the line cleanly
+                if (points.length >= 2) {
+                    const lastPoint = points[points.length - 1];
+                    ctx.beginPath();
+                    ctx.moveTo(lastMidPoint.x, lastMidPoint.y);
+                    ctx.lineTo(lastPoint.x, lastPoint.y);
+                    ctx.strokeStyle = penColor;
+                    ctx.lineWidth = lastWidth;
+                    ctx.stroke();
+                }
+
+                points = [];
+                lastMidPoint = null;
+            }
+
+            // Mouse Events
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            window.addEventListener('mouseup', stopDrawing);
+            
+            // Touch Events
+            canvas.addEventListener('touchstart', startDrawing, { passive: false });
+            canvas.addEventListener('touchmove', draw, { passive: false });
+            window.addEventListener('touchend', stopDrawing);
+            window.addEventListener('touchcancel', stopDrawing);
+
+            // Clear Canvas
+            clearBtn.addEventListener('click', () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                hasDrawn = false;
+                placeholder.style.display = 'flex';
+            });
+
+            // Change Pen Color
+            colorBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    penColor = e.target.dataset.color;
+                    
+                    colorBtns.forEach(b => {
+                        b.classList.remove(`ring-${b.dataset.color === '#000000' ? 'black' : (b.dataset.color === '#2563eb' ? 'blue-600' : 'red-600')}`);
+                        b.classList.add('ring-transparent');
+                    });
+                    
+                    const ringColorClass = penColor === '#000000' ? 'ring-black' : (penColor === '#2563eb' ? 'ring-blue-600' : 'ring-red-600');
+                    e.target.classList.remove('ring-transparent');
+                    e.target.classList.add(ringColorClass);
+                });
+            });
+
+            // Save Canvas as PNG
+            saveBtn.addEventListener('click', () => {
+                if (!hasDrawn) return;
+                const dataURL = canvas.toDataURL('image/png');
+                const link = document.createElement('a');
+                link.download = `signature-${new Date().getTime()}.png`;
+                link.href = dataURL;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+        });
+    </script>
+</body>
+</html>
