@@ -61,6 +61,9 @@
             const colorBtns = document.querySelectorAll('.color-btn');
             const placeholder = document.getElementById('placeholder');
             
+            // Explicitly clear the canvas to ensure strict transparency on load
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
             let isDrawing = false;
             let hasDrawn = false;
             let penColor = '#000000';
@@ -222,6 +225,7 @@
             // Save Canvas as PNG
             saveBtn.addEventListener('click', () => {
                 if (!hasDrawn) return;
+                // canvas.toDataURL defaults to image/png which natively supports and preserves transparency
                 const dataURL = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
                 link.download = `signature-${new Date().getTime()}.png`;
