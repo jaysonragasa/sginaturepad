@@ -62,14 +62,9 @@
             const colorBtns = document.querySelectorAll('.color-btn');
             const placeholder = document.getElementById('placeholder');
             
-            // Reusable function to properly clear and initialize the transparent background
+            // Reusable function to properly clear the transparent background
             function clearSignaturePad() {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                // Workaround for some mobile Chrome PNG encoders: 
-                // Explicitly fill the canvas with transparent white instead of transparent black.
-                // This prevents the encoder from flattening fully transparent pixels into solid black.
-                ctx.fillStyle = 'rgba(255, 255, 255, 0)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
             }
 
             // Initialize canvas
@@ -233,17 +228,26 @@
                 });
             });
 
-            // Save Canvas as PNG
+            // Save Canvas as PNG using toBlob (More reliable for transparency on mobile)
             saveBtn.addEventListener('click', () => {
                 if (!hasDrawn) return;
-                // canvas.toDataURL defaults to image/png which natively supports and preserves transparency
-                const dataURL = canvas.toDataURL('image/png');
-                const link = document.createElement('a');
-                link.download = `signature-${new Date().getTime()}.png`;
-                link.href = dataURL;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                
+                canvas.toBlob((blob) => {
+                    if (!blob) {
+                        console.error("Canvas toBlob failed");
+                        return;
+                    }
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.download = `signature-${new Date().getTime()}.png`;
+                    link.href = url;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    // Clean up the URL object after download triggers
+                    setTimeout(() => URL.revokeObjectURL(url), 100);
+                }, 'image/png');
             });
         });
     </script>
