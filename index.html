@@ -17,7 +17,7 @@
     <div class="bg-white p-6 md:p-8 rounded-2xl shadow-xl w-full max-w-2xl">
         <div class="text-center mb-6">
             <h1 class="text-2xl font-bold text-gray-800">Digital Signature</h1>
-            <p class="text-gray-500 text-sm mt-1">Features stroke smoothing & realistic ink. Saves as transparent PNG.</p>
+            <p class="text-gray-500 text-sm mt-1">Features stroke smoothing & realistic ink.</p>
         </div>
 
         <!-- Canvas Container -->
@@ -31,9 +31,9 @@
         </div>
 
         <!-- Toolbar -->
-        <div class="mt-6 flex flex-col sm:flex-row gap-4 justify-between items-center">
+        <div class="mt-6 flex flex-col md:flex-row gap-4 justify-between items-center">
             <!-- Color Selection -->
-            <div class="flex gap-2 items-center">
+            <div class="flex gap-2 items-center w-full md:w-auto justify-center md:justify-start mb-2 md:mb-0">
                 <span class="text-sm font-medium text-gray-600 mr-2">Pen Color:</span>
                 <button class="color-btn w-8 h-8 rounded-full bg-black ring-2 ring-offset-2 ring-black transition-all" data-color="#000000" aria-label="Black pen"></button>
                 <button class="color-btn w-8 h-8 rounded-full bg-blue-600 ring-2 ring-offset-2 ring-transparent transition-all" data-color="#2563eb" aria-label="Blue pen"></button>
@@ -41,30 +41,45 @@
             </div>
 
             <!-- Actions -->
-            <div class="flex gap-3 w-full sm:w-auto">
-                <button id="clear-btn" class="flex-1 sm:flex-none px-5 py-2.5 rounded-lg font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors border border-gray-200">
+            <div class="flex flex-wrap gap-2 w-full md:w-auto justify-center">
+                <button id="clear-btn" class="flex-1 md:flex-none px-4 py-2.5 rounded-lg text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors border border-gray-200">
                     Clear
                 </button>
-                <button id="save-btn" class="flex-1 sm:flex-none px-5 py-2.5 rounded-lg font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm shadow-blue-600/30">
-                    Save PNG
+                <button id="save-btn" class="flex-1 md:flex-none px-4 py-2.5 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-200">
+                    Save PNG (Transparent)
+                </button>
+                <button id="save-jpg-btn" class="w-full sm:flex-1 md:flex-none px-4 py-2.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm shadow-blue-600/30">
+                    Save JPG (White BG)
                 </button>
             </div>
         </div>
+        <p class="text-xs text-center text-gray-400 mt-4">Use "Save JPG" if sending via Messenger or WhatsApp to prevent black backgrounds.</p>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const canvas = document.getElementById('signature-pad');
-            // Explicitly request alpha channel support
             const ctx = canvas.getContext('2d', { alpha: true });
             const clearBtn = document.getElementById('clear-btn');
             const saveBtn = document.getElementById('save-btn');
+            const saveJpgBtn = document.getElementById('save-jpg-btn');
             const colorBtns = document.querySelectorAll('.color-btn');
             const placeholder = document.getElementById('placeholder');
             
-            // Reusable function to properly clear the transparent background
+            // Advanced Clear: Forces pixels to transparent white instead of transparent black
+            // This prevents specific mobile encoders from turning transparent pixels solid black.
             function clearSignaturePad() {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imgData.data;
+                for (let i = 0; i < data.length; i += 4) {
+                    data[i] = 255;     // Red
+                    data[i + 1] = 255; // Green
+                    data[i + 2] = 255; // Blue
+                    data[i + 3] = 0;   // Alpha (Transparent)
+                }
+                ctx.putImageData(imgData, 0, 0);
             }
 
             // Initialize canvas
@@ -88,7 +103,7 @@
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
 
-            // Function to get exact coordinates considering potential CSS scaling
+            // Function to get exact coordinates
             function getCoordinates(e) {
                 const rect = canvas.getBoundingClientRect();
                 const clientX = e.clientX !== undefined ? e.clientX : e.touches[0].clientX;
@@ -120,7 +135,7 @@
                 lastWidth = (minWidth + maxWidth) / 2;
                 lastMidPoint = point;
 
-                // Draw initial dot for taps
+                // Draw initial dot
                 ctx.fillStyle = penColor;
                 ctx.beginPath();
                 ctx.arc(point.x, point.y, lastWidth / 2, 0, Math.PI * 2);
@@ -128,7 +143,7 @@
                 ctx.closePath();
             }
 
-            // Draw line (Smoothing & Ink Effect)
+            // Draw line
             function draw(e) {
                 if (!isDrawing) return;
                 e.preventDefault();
@@ -140,25 +155,20 @@
                     const p1 = points[points.length - 2];
                     const p2 = points[points.length - 1];
 
-                    // Calculate midpoint for bezier curve smoothing
                     const midPoint = {
                         x: (p1.x + p2.x) / 2,
                         y: (p1.y + p2.y) / 2
                     };
 
-                    // Calculate stroke velocity
                     const distance = Math.hypot(p2.x - p1.x, p2.y - p1.y);
                     const timeDiff = p2.time - p1.time;
                     let velocity = timeDiff === 0 ? 0 : distance / timeDiff;
 
-                    // Apply low-pass filter to velocity for smoother thickness transitions
                     velocity = velocityFilterWeight * velocity + (1 - velocityFilterWeight) * lastVelocity;
 
-                    // Map velocity to line width (faster = thinner, slower = thicker)
                     let targetWidth = Math.max(minWidth, maxWidth - (velocity * 1.5));
-                    let currentWidth = lastWidth * 0.7 + targetWidth * 0.3; // Interpolate width
+                    let currentWidth = lastWidth * 0.7 + targetWidth * 0.3;
 
-                    // Draw the curve segment
                     ctx.beginPath();
                     ctx.moveTo(lastMidPoint.x, lastMidPoint.y);
                     ctx.quadraticCurveTo(p1.x, p1.y, midPoint.x, midPoint.y);
@@ -167,7 +177,6 @@
                     ctx.lineWidth = currentWidth;
                     ctx.stroke();
 
-                    // Update state for next frame
                     lastVelocity = velocity;
                     lastWidth = currentWidth;
                     lastMidPoint = midPoint;
@@ -179,7 +188,6 @@
                 if (!isDrawing) return;
                 isDrawing = false;
                 
-                // Draw the very last trailing segment to connect the line cleanly
                 if (points.length >= 2) {
                     const lastPoint = points[points.length - 1];
                     ctx.beginPath();
@@ -228,26 +236,51 @@
                 });
             });
 
-            // Save Canvas as PNG using toBlob (More reliable for transparency on mobile)
+            // Save Canvas as Transparent PNG
             saveBtn.addEventListener('click', () => {
                 if (!hasDrawn) return;
-                
                 canvas.toBlob((blob) => {
-                    if (!blob) {
-                        console.error("Canvas toBlob failed");
-                        return;
-                    }
+                    if (!blob) return;
                     const url = URL.createObjectURL(blob);
                     const link = document.createElement('a');
-                    link.download = `signature-${new Date().getTime()}.png`;
+                    link.download = `signature-transparent-${new Date().getTime()}.png`;
                     link.href = url;
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
-                    
-                    // Clean up the URL object after download triggers
                     setTimeout(() => URL.revokeObjectURL(url), 100);
                 }, 'image/png');
+            });
+
+            // Save Canvas as JPG with White Background (For Messenger/WhatsApp)
+            saveJpgBtn.addEventListener('click', () => {
+                if (!hasDrawn) return;
+                
+                // Create a temporary canvas
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = canvas.width;
+                tempCanvas.height = canvas.height;
+                const tCtx = tempCanvas.getContext('2d');
+                
+                // Fill the background with solid white
+                tCtx.fillStyle = '#ffffff';
+                tCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+                
+                // Draw the signature over the white background
+                tCtx.drawImage(canvas, 0, 0);
+                
+                // Export as JPEG
+                tempCanvas.toBlob((blob) => {
+                    if (!blob) return;
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.download = `signature-whiteBG-${new Date().getTime()}.jpg`;
+                    link.href = url;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setTimeout(() => URL.revokeObjectURL(url), 100);
+                }, 'image/jpeg', 1.0); // 1.0 is highest quality
             });
         });
     </script>
